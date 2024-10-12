@@ -12,7 +12,7 @@
 ### カスタムAMIからEC2インスタンスを作成する
 
 下記のページのAMIのリンクを踏んでAWSをログインして、EC2インスタンスを作成する。
-https://github.com/matsuu/aws-isucon#ami
+[https://github.com/matsuu/aws-isucon#ami](https://github.com/matsuu/aws-isucon#ami)
 
 [ISUCON11予選の場合](https://console.aws.amazon.com/ec2/home?region=ap-northeast-1#ImageDetails:imageId=ami-0796be4f4814fc3d5)
 
