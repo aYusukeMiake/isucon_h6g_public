@@ -17,7 +17,7 @@
 [ISUCON11予選の場合](https://console.aws.amazon.com/ec2/home?region=ap-northeast-1#ImageDetails:imageId=ami-0796be4f4814fc3d5)
 
 参考
-https://repost.aws/ja/knowledge-center/launch-instance-custom-ami
+[https://repost.aws/ja/knowledge-center/launch-instance-custom-ami](https://repost.aws/ja/knowledge-center/launch-instance-custom-ami)
 
 インスンス設定は下記のようにして起動する。(言及していない所はデフォルトのまま)
 
