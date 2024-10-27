@@ -1,4 +1,4 @@
-# private-isu-training
+# private-isuで環境構築から最初のチューニングをするまで
 
 ## 概要
 
