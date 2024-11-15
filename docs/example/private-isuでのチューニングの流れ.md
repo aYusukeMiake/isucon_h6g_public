@@ -354,4 +354,359 @@ Count: 232695  Time=0.00s (0s)  Lock=0.00s (0s)  Rows=0.0 (0), 0users@0hosts
 ```
 
 (修正内容)
-サーバーサイドプリペアドステートメントをせずにクライアントサイドプリペアドステートメントを使うようにする。
+サーバーサイドプリペアドステートメントをせずにクライアントサイドプリペアドステートメントを使うようにする。具体的には、DB.prepare+executeで実行していたクエリをDB.xqueryに変更する。
+
+結果として、スコアが80000点→85000点に上がった。
+
+```json
+{"pass":true,"score":85555,"success":82985,"fail":0,"messages":[]}
+```
+
+また、pt-query-digestのスロークエリから、ADMIN PREPAREがなくなった。
+
+```shell
+# Profile
+# Rank Query ID                           Response time Calls R/Call V/M
+# ==== ================================== ============= ===== ====== =====
+#    1 0x396201721CD58410E070DA9421CA8C8D  3.9256 32.5% 20844 0.0002  0.00 SELECT users
+#    2 0x624863D30DAC59FA16849282195BE09F  2.3631 19.5%  8736 0.0003  0.00 SELECT comments
+#    3 0xCDEB1AFF2AE2BE51B2ED5CF03D4E749F  1.9960 16.5%    31 0.0644  0.00 SELECT comments
+```
+
+### インデックスが貼ってなさそうなスロークエリがある
+
+スロークエリの上位に下記のクエリがある。
+
+```shell
+(状況)
+Count: 706  Time=0.07s (46s)  Lock=0.00s (0s)  Rows=1.0 (706), isuconp[isuconp]@localhost
+  SELECT COUNT(*) AS count FROM `comments` WHERE `user_id` = 'S'
+```
+
+EXPLAINをみると、インデックスが貼られていないことがわかる。
+
+```shell
+mysql> EXPLAIN SELECT COUNT(*) AS count FROM `comments` WHERE `user_id` = '77';
++----+-------------+----------+------------+------+---------------+------+---------+------+-------+----------+-------------+
+| id | select_type | table    | partitions | type | possible_keys | key  | key_len | ref  | rows  | filtered | Extra       |
++----+-------------+----------+------------+------+---------------+------+---------+------+-------+----------+-------------+
+|  1 | SIMPLE      | comments | NULL       | ALL  | NULL          | NULL | NULL    | NULL | 99666 |    10.00 | Using where |
++----+-------------+----------+------------+------+---------------+------+---------+------+-------+----------+-------------+
+```
+
+(修正内容)
+`user_id`にインデックスを貼る。
+
+```sql
+ALTER TABLE `comments` ADD INDEX `idx_user_id` (`user_id`);
+```
+
+EXPLAINをみると、インデックスが効いていることがわかる。
+
+```shell
+mysql> EXPLAIN SELECT COUNT(*) AS count FROM `comments` WHERE `user_id` = '77';
++----+-------------+----------+------------+------+---------------+-------------+---------+-------+------+----------+-------------+
+| id | select_type | table    | partitions | type | possible_keys | key         | key_len | ref   | rows | filtered | Extra       |
++----+-------------+----------+------------+------+---------------+-------------+---------+-------+------+----------+-------------+
+|  1 | SIMPLE      | comments | NULL       | ref  | idx_user_id   | idx_user_id | 4       | const |  101 |   100.00 | Using index |
++----+-------------+----------+------------+------+---------------+-------------+---------+-------+------+----------+-------------+
+1 row in set, 1 warning (0.01 sec)
+```
+
+スコアとしては、85000点から88000点に上がった。
+
+```json
+{"pass":true,"score":88215,"success":85491,"fail":0,"messages":[]}
+```
+
+### make_postsにN+1問題がある
+
+(状況)
+make_postsはestackprofでみると、いまだに実行されている時間が長いことが分かる。
+内部で実行されているクエリがループのたびに実行されているのが問題である。
+
+```ruby
+                                  |   106  |       def make_posts(results, all_comments: false)
+                                  |   107  |         posts = []
+ 11563   (51.8%) /    12   (0.1%) |   108  |         results.to_a.each do |post|
+ 2959   (13.2%) /   112   (0.5%)  |   109  |           post[:comment_count] = db.xquery('SELECT COUNT(*) AS `count` FROM `comments` WHERE `post_id` = ?', post[:id]).first[:count]
+                                  |   110  |
+   15    (0.1%) /    15   (0.1%)  |   111  |           query = 'SELECT * FROM `comments` WHERE `post_id` = ? ORDER BY `created_at` DESC'
+    7    (0.0%) /     7   (0.0%)  |   112  |           unless all_comments
+   44    (0.2%) /    44   (0.2%)  |   113  |             query += ' LIMIT 3'
+                                  |   114  |           end
+ 3421   (15.3%) /    73   (0.3%)  |   115  |           comments = db.xquery(query, post[:id]).to_a
+ 4727   (21.2%) /    14   (0.1%)  |   116  |           comments.each do |comment|
+ 4653   (20.8%) /   149   (0.7%)  |   117  |             comment[:user] = db.xquery('SELECT * FROM `users` WHERE `id` = ?', comment[:user_id]).first
+    4    (0.0%) /     4   (0.0%)  |   118  |           end
+   45    (0.2%) /    31   (0.1%)  |   119  |           post[:comments] = comments.reverse
+                                  |   120  |
+   96    (0.4%) /    96   (0.4%)  |   121  |           post[:user] = {
+   12    (0.1%) /    12   (0.1%)  |   122  |             account_name: post[:account_name],
+                                  |   123  |           }
+                                  |   124  |
+   35    (0.2%) /    13   (0.1%)  |   125  |           posts.push(post)
+    5    (0.0%) /     5   (0.0%)  |   126  |         end
+                                  |   127  |
+                                  |   128  |         posts
+                                  |   129  |       end
+                                  |   130  |
+```
+
+(修正内容)
+memcachedでコメントとコメント数をキャッシュする。memcachedはprivate-isu上では既に動いているのでそれを使う。
+
+- コメントとコメント数を取得する前にmemcachedを確認するように改修
+  - データがあればそちらを使う
+  - なければDBクエリを発行する
+
+コメント数の実装例
+
+```ruby
+# 元々の実装
+post[:comment_count] = db.xquery('SELECT COUNT(*) AS `count` FROM `comments` WHERE `post_id` = ?', post[:id]).first[:count]
+
+# 改修後
+cached_comments_count = memcached.get("comments.#{post[:id]}.count")
+if cached_comments_count
+  # キャッシュが存在したらそれを使う
+  post[:comment_count] = cached_comments_count.to_i
+else
+  # 存在しなかったらMySQLにクエリ
+  post[:comment_count] = db.xquery('SELECT COUNT(*) AS `count` FROM `comments` WHERE `post_id` = ?', post[:id]).first[:count]
+  # memcachedにset(TTL 10s)
+  memcached.set("comments.#{post[:id]}.count", post[:comment_count], 10)
+end
+```
+
+上記の修正だけでもスコアが88000点→94000点に上がった。
+
+```json
+{"pass":true,"score":94192,"success":91286,"fail":0,"messages":[]}
+```
+
+なお、コメントが追加されたら、キャッシュを破棄するようにしないと整合性が取れなくなる。
+しかし、実際にはそういった実装をしなくてもTTL10秒にするだけでベンチマークが通るので、この件はある程度の遅延が認められていると考えられる。
+
+コメントについてもキャッシュするようにすると、スコアは94000点から140000点に上がった。
+
+```json
+{"pass":true,"score":142113,"success":138151,"fail":0,"messages":[]}
+```
+
+### スロークエリが残っている
+
+(状況)
+スロークエリログをみると、以下のクエリがいまだに遅い。
+
+```shell
+Count: 1612  Time=0.04s (67s)  Lock=0.00s (0s)  Rows=10.1 (16239), isuconp[isuconp]@localhost
+  SELECT p.`id`, p.`user_id`, p.`body`, p.`mime`, p.`created_at`, u.`account_name`
+  FROM `posts` p JOIN `users` u ON (p.user_id=u.id)
+  WHERE `user_id` = 'S' AND u.del_flg=N
+  ORDER BY p.`created_at` DESC LIMIT N
+
+Count: 2  Time=0.01s (0s)  Lock=0.00s (0s)  Rows=0.0 (0), root[root]@localhost
+  SET GLOBAL slow_query_log_file = @cur_slow_query_log_file
+
+Count: 1613  Time=0.01s (13s)  Lock=0.00s (0s)  Rows=10.1 (16249), isuconp[isuconp]@localhost
+  SELECT `id` FROM `posts` WHERE `user_id` = 'S'
+
+Count: 1139  Time=0.01s (7s)  Lock=0.00s (0s)  Rows=1.0 (1139), isuconp[isuconp]@localhost
+  SELECT * FROM `posts` WHERE `id` = 'S'
+```
+
+EXPLAINをみると、possible_keysがNULLになっているため、有効なインデックスがないことが分かる。
+
+```sql
+mysql> EXPLAIN SELECT p.`id`, p.`user_id`, p.`body`, p.`mime`, p.`created_at`, u.`account_name`
+    ->         FROM `posts` p JOIN `users` u ON (p.user_id=u.id)
+    ->         WHERE `user_id` = '385' AND u.del_flg=0
+    ->         ORDER BY p.`created_at` DESC LIMIT 20;
++----+-------------+-------+------------+-------+---------------+-----------------+---------+-------+------+----------+-------------+
+| id | select_type | table | partitions | type  | possible_keys | key             | key_len | ref   | rows | filtered | Extra       |
++----+-------------+-------+------------+-------+---------------+-----------------+---------+-------+------+----------+-------------+
+|  1 | SIMPLE      | u     | NULL       | const | PRIMARY       | PRIMARY         | 4       | const |    1 |   100.00 | NULL        |
+|  1 | SIMPLE      | p     | NULL       | index | NULL          | posts_order_idx | 4       | NULL  |   20 |     1.00 | Using where |
++----+-------------+-------+------------+-------+---------------+-----------------+---------+-------+------+----------+-------------+
+2 rows in set, 1 warning (0.00 sec)
+
+mysql> EXPLAIN FORMAT=TREE SELECT p.`id`, p.`user_id`, p.`body`, p.`mime`, p.`created_at`, u.`account_name`         FROM `posts` p JOIN `use
+rs` u ON (p.user_id=u.id)         WHERE `user_id` = '385' AND u.del_flg=0         ORDER BY p.`created_at` DESC LIMIT 20;
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| EXPLAIN                                                                                                                                                                                        |
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| -> Limit: 20 row(s)  (cost=168 rows=0.2)
+    -> Filter: ((p.user_id = '385') and (p.user_id = 385))  (cost=168 rows=0.2)
+        -> Index scan on p using posts_order_idx  (cost=168 rows=20)
+ |
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+1 row in set (0.00 sec)
+```
+
+(修正内容)
+
+postsにuser_idとcreated_atの複合インデックスを貼る。
+
+```sql
+mysql> ALTER TABLE `posts` ADD INDEX `posts_user_idx` (`user_id`,`created_at` DESC);
+```
+
+ただし、これだけだとpostsテーブルに複数のインデックスが貼られ、実行計画時にどのインデックスを使われるかが不安定になるため、スコアが下がる。
+
+```json
+{"pass":true,"score":30257,"success":29275,"fail":0,"messages":[]}
+```
+
+pt-query-digestで個別に遅くなったクエリが分かるので、それに対してEXPLAINを実行すると、下記のようになった。
+
+```sql
+mysql> EXPLAIN SELECT p.id, p.user_id, p.body, p.created_at, p.mime, u.account_name
+    ->         FROM `posts` AS p JOIN `users` AS u ON (p.user_id=u.id)
+    ->         WHERE u.del_flg=0
+    ->         ORDER BY p.created_at DESC
+    ->         LIMIT 20;
++----+-------------+-------+------------+------+----------------+----------------+---------+--------------+------+----------+----------------------------------------------+
+| id | select_type | table | partitions | type | possible_keys  | key            | key_len | ref          | rows | filtered | Extra                                        |
++----+-------------+-------+------------+------+----------------+----------------+---------+--------------+------+----------+----------------------------------------------+
+|  1 | SIMPLE      | u     | NULL       | ALL  | PRIMARY        | NULL           | NULL    | NULL         | 1060 |    10.00 | Using where; Using temporary; Using filesort |
+|  1 | SIMPLE      | p     | NULL       | ref  | posts_user_idx | posts_user_idx | 4       | isuconp.u.id |    9 |   100.00 | NULL                                         |
++----+-------------+-------+------------+------+----------------+----------------+---------+--------------+------+----------+----------------------------------------------+
+
+mysql> EXPLAIN FORMAT=TREE SELECT p.id, p.user_id, p.body, p.created_at, p.mime, u.account_name         FROM `posts` AS p JOIN `users` AS u ON
+ (p.user_id=u.id)         WHERE u.del_flg=0         ORDER BY p.created_at DESC         LIMIT 20;
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| EXPLAIN                                                                                                                                                                                                                                                                                                                                                                                                                            |
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| -> Limit: 20 row(s)
+    -> Sort: p.created_at DESC, limit input to 20 row(s) per chunk
+        -> Stream results  (cost=1483 rows=1230)
+            -> Nested loop inner join  (cost=1483 rows=1230)
+                -> Filter: (u.del_flg = 0)  (cost=131 rows=127)
+                    -> Table scan on u  (cost=131 rows=1272)
+                -> Index lookup on p using posts_user_idx (user_id=u.id)  (cost=9.67 rows=9.67)
+ |
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+1 row in set (0.00 sec)
+```
+
+先ほどと実行順序が変わったり、フルスキャンが実行されてしまったりしている。これはJOINの結合順が逆になってしまっているからである。STRAIGHT_JOINで結合順を指定することで、インデックスが効くようになる。
+
+```sql
+SELECT p.`id`, p.`user_id`, p.`body`, p.`mime`, p.`created_at`, u.`account_name`
+FROM `posts` p STRAIGHT_JOIN `users` u ON (p.user_id=u.id)
+WHERE p.`created_at` <= ? AND u.del_flg=0
+ORDER BY p.`created_at` DESC
+LIMIT 20
+```
+
+結果として、スコアが142000点→151000点に上がった。
+
+```json
+{"pass":true,"score":151017,"success":146843,"fail":0,"messages":[]}
+```
+
+### 外部コマンドの実行が遅い
+
+(状況)
+
+opensslコマンドのハッシュ化で外部コマンドを呼び出しており、これが遅い。
+
+```ruby
+def digest(src)
+  `printf "%s" #{Shellwords.shellescape(src)} | openssl dgst -sha512 | sed 's/^.*= //'`.strip
+end
+```
+
+(修正内容)
+
+RubyのOpenSSLライブラリを使ってハッシュ化するように変更する。
+
+```ruby
+require 'openssl'
+
+def digest(src)
+  OpenSSL::Digest::SHA512.hexdigest(src)
+end
+```
+
+結果として、スコアが151000点→201000点に上がった。
+
+```json
+{"pass":true,"score":201864,"success":194951,"fail":0,"messages":[]}
+```
+
+### キャッシュの取得がN+1問題のまま
+
+(状況)
+
+ループのたびにmemcachedからデータを取得しているため、N+1問題が発生している。
+
+```ruby
+# 元々のコード(コメント数の取得)
+def make_posts(results, all_comments: false)
+  posts = []
+  results.to_a.each do |post|
+    cached_comments_count = memcached.get("comments.#{post[:id]}.count")
+    if cached_comments_count
+      # キャッシュが存在したらそれを使う
+      post[:comment_count] = cached_comments_count.to_i
+    else
+      # 存在しなかったらMySQLにクエリ
+      post[:comment_count] = db.xquery('SELECT COUNT(*) AS `count` FROM `comments` WHERE `post_id` = ?', post[:id]).first[:count]
+      # memcachedにset(TTL 10s)
+      memcached.set("comments.#{post[:id]}.count", post[:comment_count], 10)
+    end
+    #...
+```
+
+(修正内容)
+
+一度に複数のキャッシュを取得するget_multiを使うように変更する。
+
+```ruby
+# 改修後
+def make_posts(results, all_comments: false)
+  posts = []
+  # posts.idをあらかじめ取り出してキャッシュのキーを一覧にする
+  count_keys = results.to_a.map{|post| "comments.#{post[:id]}.count"}
+  comments_keys = results.to_a.map{|post| "comments.#{post[:id]}.#{all_comments.to_s}"}
+
+  # get_multiで複数のキーを一度に取得する
+  cached_counts = memcached.get_multi(count_keys)
+  cached_comments = memcached.get_multi(comments_keys)
+
+  results.to_a.each do |post|
+    if cached_counts["comments.#{post[:id]}.count"]
+      # 取得済みのキャッシュがあればそれを使う
+      post[:comment_count] = cached_counts["comments.#{post[:id]}.count"].to_i
+    else
+      # 存在しなかったらMySQLにクエリ
+      post[:comment_count] = db.xquery('SELECT COUNT(*) AS `count` FROM `comments` WHERE `post_id` = ?',
+        post[:id]
+      ).first[:count]
+      # memcachedにset(TTL 10s)
+      memcached.set("comments.#{post[:id]}.count", post[:comment_count], 10)
+    end
+    # ...
+```
+
+結果として、スコアが201000点→247000点に上がった。
+
+```json
+{"pass":true,"score":246990,"success":238246,"fail":0,"messages":[]}
+```
+
+### ログを全部止める
+
+(状況)
+
+ログが大量に出力されているため、パフォーマンスが低下している。特にスロークエリログは、本来ならば出さないようなクエリも出力するようにしているため、最終的には止める必要がある。
+
+(修正内容)
+
+ログを止めることでスコアが247000点→270000点に上がった。
+
+```json
+{"pass":true,"score":270740,"success":260741,"fail":0,"messages":[]}
+```
