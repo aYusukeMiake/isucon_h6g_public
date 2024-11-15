@@ -10,7 +10,7 @@
 
 ## ISUCON本のチューニング
 
-まずは、ISUCON本で紹介されているチューニングを順次行う。
+ISUCON本で紹介されているチューニングを順次行う。
 [コードだけ見たい人はこちら](https://github.com/tatsujin-web-performance/tatsujin-web-performance/blob/main/appendix-A/README.md)
 
 ### CPU使用率がなぜか一定の値で頭打ちになってしまっている
