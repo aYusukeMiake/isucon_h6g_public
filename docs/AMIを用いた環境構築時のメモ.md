@@ -6,6 +6,7 @@
 
 - 上記のリポジトリに掲載されているAMIを用いて、環境構築した際のメモ
 - ISUCON5からISUCON12の環境が再現
+- SSH接続にはVSCodeのRemote-SSHを使用
 
 ## 環境構築の説明
 
@@ -35,6 +36,14 @@ Host 適当な名前(例:isucon11)
   HostName インスタンスのパブリックIPv4 DNS(ec2-35-72-8-225.ap-northeast-1.compute.amazonaws.com)
   IdentityFile ~/.ssh/key_name.pem
   User ユーザー名(READMEに書いてある。isucon11予選の場合はubuntu)
+  RemoteCommand sudo su - isucon
+```
+
+また、vscodeのsettings.jsonに下記の設定を追記する。
+
+```json
+  "remote.SSH.useLocalServer": true,
+  "remote.SSH.enableRemoteCommand": true,
 ```
 
 ### ベンチマークの実行
