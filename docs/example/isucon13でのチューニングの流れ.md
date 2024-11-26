@@ -477,5 +477,204 @@ alpをみると上記のようになっていたが、その他のアクセス�
 そのため、alpのmatching_groupsの設定を変更して、同一エンドポイントにきているものをまとめて表示するようにした。
 
 ```yaml
-# TODO: 更新内容を記載
+matching_groups: # array
+  - /api/user/[a-zA-Z0-9]+/theme
+  - /api/user/[a-zA-Z0-9]+/livestream
+  - /api/livestream/[0-9]+/enter
+  - /api/livestream/[0-9]+/exit
+  - /api/livestream/[0-9]+
+  - /api/livestream/[0-9]+/report
+  - /api/livestream/[0-9]+/livecomment
+  - /api/livestream/[0-9]+/ngwords
+  - /api/livestream/[0-9]+/livecomment/[0-9]+/report
+  - /api/livestream/[0-9]+/moderate
+  - /api/livestream/[0-9]+/reaction
+  - /api/user/[a-zA-Z0-9]+/icon
+  - /api/user/[a-zA-Z0-9]+
+  - /api/user/[a-zA-Z0-9]+/statistics
+  - /api/livestream/[0-9]+/statistics
+```
+
+結果として、下記のように同一エンドポイントのクエリがまとめられるようになった。
+
+```text
++-------+-----+------+-----+-----+-----+--------+-----------------------------------+-------+--------+---------+-------+--------+--------+--------+--------+-----------+------------+---------------+-----------+
+| COUNT | 1XX | 2XX  | 3XX | 4XX | 5XX | METHOD |                URI                |  MIN  |  MAX   |   SUM   |  AVG  |  P90   |  P95   |  P99   | STDDEV | MIN(BODY) | MAX(BODY)  |   SUM(BODY)   | AVG(BODY) |
++-------+-----+------+-----+-----+-----+--------+-----------------------------------+-------+--------+---------+-------+--------+--------+--------+--------+-----------+------------+---------------+-----------+
+| 641   | 0   | 634  | 0   | 7   | 0   | GET    | /api/livestream/[0-9]+            | 0.001 | 3.031  | 302.371 | 0.472 | 1.197  | 1.542  | 2.128  | 0.534  | 0.000     | 2214.000   | 467703.000    | 729.646   |
+| 70    | 0   | 67   | 0   | 3   | 0   | GET    | /api/livestream/search            | 0.045 | 4.674  | 181.356 | 2.591 | 3.825  | 4.424  | 4.674  | 1.326  | 0.000     | 14203.000  | 517860.000    | 7398.000  |
+| 1958  | 0   | 1956 | 0   | 2   | 0   | GET    | /api/user/[a-zA-Z0-9]+/icon       | 0.002 | 0.624  | 101.147 | 0.052 | 0.078  | 0.095  | 0.153  | 0.028  | 0.000     | 171652.000 | 106045557.000 | 54160.141 |
+| 570   | 0   | 563  | 0   | 7   | 0   | POST   | /api/livestream/[0-9]+            | 0.003 | 0.928  | 82.627  | 0.145 | 0.213  | 0.237  | 0.320  | 0.075  | 0.000     | 2097.000   | 808213.000    | 1417.918  |
+| 10    | 0   | 10   | 0   | 0   | 0   | GET    | /api/user/[a-zA-Z0-9]+            | 0.001 | 19.690 | 79.271  | 7.927 | 19.142 | 19.690 | 19.690 | 8.712  | 111.000   | 202.000    | 1454.000      | 145.400   |
+| 141   | 0   | 139  | 0   | 1   | 1   | POST   | /api/register                     | 0.002 | 0.946  | 76.330  | 0.541 | 0.759  | 0.801  | 0.871  | 0.206  | 43.000    | 169839.000 | 229029.000    | 1624.319  |
+| 122   | 0   | 118  | 0   | 4   | 0   | POST   | /api/livestream/reservation       | 0.002 | 0.973  | 48.864  | 0.401 | 0.655  | 0.706  | 0.779  | 0.245  | 0.000     | 1088.000   | 109083.000    | 894.123   |
+| 140   | 0   | 130  | 0   | 1   | 9   | POST   | /api/icon                         | 0.021 | 1.434  | 27.254  | 0.195 | 0.222  | 0.769  | 1.339  | 0.240  | 0.000     | 170163.000 | 1532235.000   | 10944.536 |
+| 147   | 0   | 144  | 0   | 3   | 0   | POST   | /api/login                        | 0.002 | 0.167  | 7.051   | 0.048 | 0.083  | 0.110  | 0.145  | 0.032  | 0.000     | 40.000     | 80.000        | 0.544     |
+| 60    | 0   | 60   | 0   | 0   | 0   | GET    | /api/livestream                   | 0.004 | 0.492  | 5.135   | 0.086 | 0.210  | 0.228  | 0.492  | 0.108  | 2.000     | 2968.000   | 29874.000     | 497.900   |
+| 101   | 0   | 101  | 0   | 0   | 0   | GET    | /api/tag                          | 0.001 | 0.168  | 4.627   | 0.046 | 0.068  | 0.103  | 0.149  | 0.027  | 1186.000  | 1186.000   | 119786.000    | 1186.000  |
+| 1     | 0   | 1    | 0   | 0   | 0   | POST   | /api/initialize                   | 2.653 | 2.653  | 2.653   | 2.653 | 2.653  | 2.653  | 2.653  | 0.000  | 19.000    | 19.000     | 19.000        | 19.000    |
+| 4     | 0   | 4    | 0   | 0   | 0   | GET    | /api/user/[a-zA-Z0-9]+/livestream | 0.235 | 0.696  | 1.796   | 0.449 | 0.696  | 0.696  | 0.696  | 0.166  | 1014.000  | 1530.000   | 5096.000      | 1274.000  |
+| 26    | 0   | 26   | 0   | 0   | 0   | POST   | /api/livestream/[0-9]+/enter      | 0.002 | 0.186  | 1.307   | 0.050 | 0.085  | 0.108  | 0.186  | 0.036  | 0.000     | 0.000      | 0.000         | 0.000     |
+| 16    | 0   | 16   | 0   | 0   | 0   | DELETE | /api/livestream/[0-9]+/exit       | 0.003 | 0.102  | 0.826   | 0.052 | 0.089  | 0.102  | 0.102  | 0.024  | 0.000     | 0.000      | 0.000         | 0.000     |
+| 5     | 0   | 5    | 0   | 0   | 0   | GET    | /api/user/[a-zA-Z0-9]+/theme      | 0.002 | 0.123  | 0.386   | 0.077 | 0.123  | 0.123  | 0.123  | 0.044  | 59.000    | 59.000     | 295.000       | 59.000    |
+| 1     | 0   | 1    | 0   | 0   | 0   | GET    | /api/payment                      | 0.023 | 0.023  | 0.023   | 0.023 | 0.023  | 0.023  | 0.023  | 0.000  | 15.000    | 15.000     | 15.000        | 15.000    |
++-------+-----+------+-----+-----+-----+--------+-----------------------------------+-------+--------+---------+-------+--------+--------+--------+--------+-----------+------------+---------------+-----------+
+```
+
+`/api/livestream/[0-9]+`のクエリがボトルネックになっていることが分かった。estackprofでコードを確認した。
+
+```ruby
+                                  |   425  |     # get livestream
+                                  |   426  |     get '/api/livestream/:livestream_id' do
+                                  |   427  |       verify_user_session!
+                                  |   428  |
+                                  |   429  |       livestream_id = cast_as_integer(params[:livestream_id])
+                                  |   430  |
+    2    (0.0%)                   |   431  |       livestream = db_transaction do |tx|
+                                  |   432  |         livestream_model = tx.xquery('SELECT * FROM livestreams WHERE id = ?', livestream_id).first
+                                  |   433  |         unless livestream_model
+                                  |   434  |           raise HttpError.new(404)
+                                  |   435  |         end
+                                  |   436  |
+    2    (0.0%)                   |   437  |         fill_livestream_response(tx, livestream_model)
+                                  |   438  |       end
+                                  |   439  |
+                                  |   440  |       json(livestream)
+                                  |   441  |     end
+```
+
+内部で呼び出しているコードに原因がありそうに見える。ひとまず`fill_livestream_response`関数のコードを確認した。
+
+```ruby
+                                  |   109  |       def fill_livestream_response(tx, livestream_model)
+  286    (2.4%) /     7   (0.1%)  |   110  |         owner_model = tx.xquery('SELECT * FROM users WHERE id = ?', livestream_model.fetch(:user_id)).first
+ 2266   (19.2%) /     2   (0.0%)  |   111  |         owner = fill_user_response(tx, owner_model)
+                                  |   112  |
+ 1262   (10.7%) /     8   (0.1%)  |   113  |         tags = tx.xquery('SELECT * FROM livestream_tags WHERE livestream_id = ?', livestream_model.fetch(:id)).map do |livestream_tag_model|
+  928    (7.8%) /    12   (0.1%)  |   114  |           tag_model = tx.xquery('SELECT * FROM tags WHERE id = ?', livestream_tag_model.fetch(:tag_id)).first
+    7    (0.1%) /     7   (0.1%)  |   115  |           {
+    6    (0.1%) /     4   (0.0%)  |   116  |             id: tag_model.fetch(:id),
+    2    (0.0%) /     1   (0.0%)  |   117  |             name: tag_model.fetch(:name),
+                                  |   118  |           }
+                                  |   119  |         end
+                                  |   120  |
+   13    (0.1%) /     4   (0.0%)  |   121  |         livestream_model.slice(:id, :title, :description, :playlist_url, :thumbnail_url, :start_at, :end_at).merge(
+                                  |   122  |           owner:,
+                                  |   123  |           tags:,
+                                  |   124  |         )
+                                  |   125  |       end
+```
+
+`fill_livestream_response`は複数箇所で呼ばれているとはいえ、あきらかに負荷になっている。とりあえずJOINでN+1問題の解決を図った。
+
+```ruby
+    get '/api/livestream/:livestream_id' do
+      verify_user_session!
+
+      livestream_id = cast_as_integer(params[:livestream_id])
+
+      livestream = db_transaction do |tx|
+        query = <<~SQL
+          SELECT
+            l.id, l.title, l.description, l.playlist_url, l.thumbnail_url, l.start_at, l.end_at,
+            u.id AS user_id, u.name, u.display_name, u.description AS user_description,
+            t.id AS tag_id, t.name AS tag_name,
+            th.id AS theme_id, th.dark_mode,
+            ic.image AS icon_image
+          FROM livestreams l
+          LEFT JOIN users u ON l.user_id = u.id
+          LEFT JOIN livestream_tags lt ON lt.livestream_id = l.id
+          LEFT JOIN tags t ON lt.tag_id = t.id
+          LEFT JOIN themes th ON u.id = th.user_id
+          LEFT JOIN icons ic ON u.id = ic.user_id
+          WHERE l.id = ?
+        SQL
+
+        results = tx.xquery(query, livestream_id).to_a
+
+        unless results.any?
+          raise HttpError.new(404)
+        end
+
+        batch_livestream_response(results)
+      end
+
+      json(livestream)
+    end
+
+    def batch_livestream_response(results)
+      tags = results.map do |row|
+        { id: row[:tag_id], name: row[:tag_name] }.compact
+      end.uniq
+
+      owner = {
+        id: results.first[:user_id],
+        name: results.first[:name],
+        display_name: results.first[:display_name],
+        description: results.first[:user_description],
+        theme: {
+          id: results.first[:theme_id],
+          dark_mode: results.first[:dark_mode]
+        },
+        icon_hash: results.first[:icon_image] ? Digest::SHA256.hexdigest(results.first[:icon_image]) : Digest::SHA256.hexdigest(File.binread(FALLBACK_IMAGE))
+      }
+
+      results.first.slice(:id, :title, :description, :playlist_url, :thumbnail_url, :start_at, :end_at).merge(
+        owner: owner,
+        tags: tags,
+      )
+    end
+```
+
+スコアとしては変わらなかったが、estackprof上でみると、ひとまず負荷は下がっていた。ICONの取得が結局遅そうなので、こちらの方針で進めるのではなく、画像を一旦静的ファイルにする方向に変えた。
+
+```ruby
+      # 読み取るコードの一例
+      def fill_user_response(tx, user_model)
+        theme_model = tx.xquery('SELECT * FROM themes WHERE user_id = ?', user_model.fetch(:id)).first
+
+        # icon_model = tx.xquery('SELECT image FROM icons WHERE user_id = ?', user_model.fetch(:id)).first
+        icon_path = "../img/#{user_model.fetch(:id)}.jpg"
+        image =
+          # 元々のコード
+          # if icon_model
+          #   icon_model.fetch(:image)
+          # else
+          #   File.binread(FALLBACK_IMAGE)
+          # end
+          if File.exist?(icon_path)
+            File.binread(icon_path)
+          else
+            FALLBACK_IMAGE_BIN
+          end
+        icon_hash = Digest::SHA256.hexdigest(image)
+```
+
+```ruby
+    # 書き込む側の一例
+    post '/api/icon' do
+      verify_user_session!
+
+      sess = session[DEFAULT_SESSION_ID_KEY]
+      unless sess
+        raise HttpError.new(401)
+      end
+      user_id = sess[DEFAULT_USER_ID_KEY]
+      unless user_id
+        raise HttpError.new(401)
+      end
+
+      req = decode_request_body(PostIconRequest)
+      image = Base64.decode64(req.image)
+
+      # 元々のコード
+      # icon_id = db_transaction do |tx|
+      #   tx.xquery('DELETE FROM icons WHERE user_id = ?', user_id)
+      #   tx.xquery('INSERT INTO icons (user_id, image) VALUES (?, ?)', user_id, image)
+      #   tx.last_id
+      # end
+
+      File.open("../img/#{user_id}.jpg", mode = "w") do |f|
+        f.write(image)
+      end
 ```
